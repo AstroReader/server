@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { ApolloServer, gql, Config } from "apollo-server-express";
 import { ApolloServerPluginDrainHttpServer } from "apollo-server-core";
 import express from "express";
@@ -63,6 +65,10 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
 }
 
 const typeDefs = gql`
+  enum StatusCode {
+    SUCCESS
+    ERROR
+  }
   type User {
     id: Int!
     username: String!
@@ -80,6 +86,7 @@ const typeDefs = gql`
 
   type Mutation {
     createTask(name: String!, message: String): Task!
+    scan(folderPath: String!): StatusCode!
   }
 
   type Subscription {
@@ -87,7 +94,13 @@ const typeDefs = gql`
   }
 `;
 
+const StatusCode = {
+  SUCCESS: 200,
+  ERROR: 500,
+};
+
 const resolvers: Config["resolvers"] = {
+  StatusCode,
   Query: {
     users: () => [{ id: 1, username: "john", password: "123" }],
   },
@@ -100,6 +113,18 @@ const resolvers: Config["resolvers"] = {
       pubsub.publish("CREATE_TASK", { runningTasks: backgroundTasks });
       return task;
     },
+    scan: (_parent, args, _ctx, _info) => {
+      const { folderPath } = args;
+      // const result = {}
+      let test = fs.readdirSync(folderPath);
+
+      test = test.map((file) => {
+        return path.join(folderPath, file);
+      });
+
+      console.log(test);
+      return StatusCode.SUCCESS;
+    },
   },
   Subscription: {
     runningTasks: {
@@ -111,3 +136,20 @@ const resolvers: Config["resolvers"] = {
 };
 
 startApolloServer(typeDefs, resolvers);
+
+const scan = (rootPath: string) => {
+  try {
+    const ls = fs.readdirSync(rootPath);
+
+    ls.forEach((entry) => {
+      const entryPath = path.join(rootPath, entry);
+      const entryIsDirectory = fs.statSync(entryPath).isDirectory();
+
+      if (entryIsDirectory === false) {
+        console.log(path.basename(path.dirname(entryPath)));
+      }
+    });
+  } catch (err) {
+    console.log(err);
+  }
+};
