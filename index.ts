@@ -1,13 +1,40 @@
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { ApolloServer, gql, Config } from "apollo-server-express";
 import { ApolloServerPluginDrainHttpServer } from "apollo-server-core";
 import express from "express";
 import http from "http";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { DocumentNode, execute, subscribe } from "graphql";
 import { SubscriptionServer } from "subscriptions-transport-ws";
 import { makeExecutableSchema } from "@graphql-tools/schema";
 import { PubSub } from "graphql-subscriptions";
+import { PrismaClient } from "@prisma/client";
+
+const LOWERCASE_ALPHABET = "abcdefghijklmnopqrstuvwxyz"; // 26 chars
+const UPPERCASE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"; // 26 chars
+const NUMBERS = "0123456789"; // 10 chars
+const SYMBOLS = ",./<>?;'\":[]\\|}{=-_+`~!@#$%^&*()"; // 32 chars
+const ALPHANUMERIC_CHARS = LOWERCASE_ALPHABET + UPPERCASE_ALPHABET + NUMBERS; // 62 chars
+const ALL_CHARS = ALPHANUMERIC_CHARS + SYMBOLS; // 94 chars
+
+const saltRounds = 10;
+
+const generateRandomPassword = (length: number, alphabet: string) => {
+  let rb = crypto.randomBytes(length);
+  let rp = "";
+
+  for (var i = 0; i < length; i++) {
+    rb[i] = rb[i] % alphabet.length;
+    rp += alphabet[rb[i]];
+  }
+
+  return rp;
+};
+
+const prisma = new PrismaClient();
 
 const pubsub = new PubSub();
 
@@ -36,6 +63,11 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
 
   const server = new ApolloServer({
     schema,
+    context: ({ req }) => {
+      const token = req.headers.authorization || "";
+
+      return { user: token };
+    },
     plugins: [
       ApolloServerPluginDrainHttpServer({ httpServer }),
       {
@@ -69,10 +101,12 @@ const typeDefs = gql`
     SUCCESS
     ERROR
   }
+
   type User {
     id: Int!
     username: String!
     password: String!
+    token: String
   }
 
   type Task {
@@ -87,6 +121,7 @@ const typeDefs = gql`
   type Mutation {
     createTask(name: String!, message: String): Task!
     scan(folderPath: String!): StatusCode!
+    createUser(username: String!, password: String!): User!
   }
 
   type Subscription {
@@ -124,6 +159,28 @@ const resolvers: Config["resolvers"] = {
 
       console.log(test);
       return StatusCode.SUCCESS;
+    },
+    createUser: async (_parent, args, _ctx, _info) => {
+      const { username, password } = args;
+      try {
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+        const user = await prisma.user.create({
+          data: {
+            username,
+            password: hashedPassword,
+          },
+        });
+
+        const token = jwt.sign({ id: user.id }, "supersecretprivatekey", {
+          expiresIn: "7d",
+        });
+
+        const userWithToken = { ...user, token };
+        return userWithToken;
+      } catch (err) {
+        console.error(err);
+        process.exit(1);
+      }
     },
   },
   Subscription: {
