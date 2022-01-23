@@ -21,6 +21,7 @@ const ALPHANUMERIC_CHARS = LOWERCASE_ALPHABET + UPPERCASE_ALPHABET + NUMBERS; //
 const ALL_CHARS = ALPHANUMERIC_CHARS + SYMBOLS; // 94 chars
 
 const saltRounds = 10;
+const JWT_PRIVATE_KEY = "supersecretprivatekey";
 
 const generateRandomPassword = (length: number, alphabet: string) => {
   let rb = crypto.randomBytes(length);
@@ -122,6 +123,7 @@ const typeDefs = gql`
     createTask(name: String!, message: String): Task!
     scan(folderPath: String!): StatusCode!
     createUser(username: String!, password: String!): User!
+    loginUser(username: String!, password: String!): User
   }
 
   type Subscription {
@@ -171,7 +173,7 @@ const resolvers: Config["resolvers"] = {
           },
         });
 
-        const token = jwt.sign({ id: user.id }, "supersecretprivatekey", {
+        const token = jwt.sign({ id: user.id }, JWT_PRIVATE_KEY, {
           expiresIn: "7d",
         });
 
@@ -181,6 +183,26 @@ const resolvers: Config["resolvers"] = {
         console.error(err);
         process.exit(1);
       }
+    },
+    loginUser: async (_parent, args, _ctx, _info) => {
+      const { username, password } = args;
+      const user = await prisma.user.findUnique({ where: { username } });
+
+      if (user === null) {
+        return null;
+      }
+
+      const passwordMatch = await bcrypt.compare(password, user.password);
+
+      if (passwordMatch === false) {
+        return null;
+      }
+
+      const token = jwt.sign({ id: user.id }, JWT_PRIVATE_KEY, {
+        expiresIn: "7d",
+      });
+
+      return {...user, token}
     },
   },
   Subscription: {
