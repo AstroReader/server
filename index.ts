@@ -3,13 +3,16 @@ import { PrismaClient } from "@prisma/client";
 import { ApolloServerPluginDrainHttpServer } from "apollo-server-core";
 import { ApolloServer, Config, gql } from "apollo-server-express";
 import bcrypt from "bcrypt";
+import bodyParser from "body-parser";
+import cookieParser from "cookie-parser";
+import cors from "cors";
 import crypto from "crypto";
 import express from "express";
 import fs from "fs";
 import { DocumentNode, execute, subscribe } from "graphql";
 import { PubSub } from "graphql-subscriptions";
 import http from "http";
-import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import path from "path";
 import { SubscriptionServer } from "subscriptions-transport-ws";
 
@@ -22,6 +25,22 @@ const ALL_CHARS = ALPHANUMERIC_CHARS + SYMBOLS; // 94 chars
 
 const saltRounds = 10;
 const JWT_PRIVATE_KEY = "supersecretprivatekey";
+
+const getUser = async (token: string) => {
+  try {
+    if (typeof token !== "string" || token.length <= 0) return null;
+    const decoded = jwt.verify(token, JWT_PRIVATE_KEY) as JwtPayload;
+    if (decoded.id) {
+      const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+      if (user === null) return null;
+      return { id: user.id, username: user.username, token };
+    }
+    return null;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+};
 
 const generateRandomPassword = (length: number, alphabet: string) => {
   let rb = crypto.randomBytes(length);
@@ -45,8 +64,24 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
   const app = express();
   const httpServer = http.createServer(app);
 
-  app.get("/test", (_, res) => {
-    res.send("hello world");
+  app.use(bodyParser.json());
+  app.use(cookieParser());
+  app.use(
+    cors({
+      origin: ["http://localhost:3000", "https://studio.apollographql.com"],
+      credentials: true,
+    })
+  );
+
+  app.post("/cookie", (req, res) => {
+    const token = req.body.token || "";
+    res
+      .cookie("token", token, {
+        maxAge: 7 * 24 * 60 * 60 * 1000, // days * hours * minutes * seconds * milliseconds
+        httpOnly: true,
+        secure: true,
+      })
+      .sendStatus(200);
   });
   const schema = makeExecutableSchema({ typeDefs, resolvers });
 
@@ -64,10 +99,11 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
 
   const server = new ApolloServer({
     schema,
-    context: ({ req }) => {
-      const token = req.headers.authorization || "";
-
-      return { user: token };
+    context: async ({ req }) => {
+      const token = req.cookies.token || "";
+      const user = await getUser(token);
+      console.log(user);
+      return { user };
     },
     plugins: [
       ApolloServerPluginDrainHttpServer({ httpServer }),
@@ -84,6 +120,14 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
   });
 
   await server.start();
+
+  server.applyMiddleware({
+    app,
+    cors: {
+      origin: ["http://localhost:3000", "https://studio.apollographql.com"],
+      credentials: true,
+    },
+  });
 
   server.applyMiddleware({
     app,
@@ -106,7 +150,6 @@ const typeDefs = gql`
   type User {
     id: Int!
     username: String!
-    password: String!
     token: String
   }
 
@@ -116,7 +159,7 @@ const typeDefs = gql`
   }
 
   type Query {
-    users: [User!]
+    user: User
   }
 
   type Mutation {
@@ -139,7 +182,10 @@ const StatusCode = {
 const resolvers: Config["resolvers"] = {
   StatusCode,
   Query: {
-    users: () => [{ id: 1, username: "john", password: "123" }],
+    user: (_parent, _args, ctx, _info) => {
+      const { user } = ctx;
+      return user;
+    },
   },
   Mutation: {
     createTask: (_parent, args, _ctx, _info) => {
@@ -177,8 +223,7 @@ const resolvers: Config["resolvers"] = {
           expiresIn: "7d",
         });
 
-        const userWithToken = { ...user, token };
-        return userWithToken;
+        return { id: user.id, username: user.username, token };
       } catch (err) {
         console.error(err);
         process.exit(1);
@@ -202,7 +247,7 @@ const resolvers: Config["resolvers"] = {
         expiresIn: "7d",
       });
 
-      return { ...user, token };
+      return { id: user.id, username: user.username, token };
     },
   },
   Subscription: {
