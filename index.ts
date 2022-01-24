@@ -1,17 +1,17 @@
-import {makeExecutableSchema} from "@graphql-tools/schema";
-import {PrismaClient} from "@prisma/client";
-import {ApolloServerPluginDrainHttpServer} from "apollo-server-core";
-import {ApolloServer, Config, gql} from "apollo-server-express";
+import { makeExecutableSchema } from "@graphql-tools/schema";
+import { PrismaClient } from "@prisma/client";
+import { ApolloServerPluginDrainHttpServer } from "apollo-server-core";
+import { ApolloServer, Config, gql } from "apollo-server-express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import express from "express";
 import fs from "fs";
-import {DocumentNode, execute, subscribe} from "graphql";
-import {PubSub} from "graphql-subscriptions";
+import { DocumentNode, execute, subscribe } from "graphql";
+import { PubSub } from "graphql-subscriptions";
 import http from "http";
 import jwt from "jsonwebtoken";
 import path from "path";
-import {SubscriptionServer} from "subscriptions-transport-ws";
+import { SubscriptionServer } from "subscriptions-transport-ws";
 
 const LOWERCASE_ALPHABET = "abcdefghijklmnopqrstuvwxyz"; // 26 chars
 const UPPERCASE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"; // 26 chars
