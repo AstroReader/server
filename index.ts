@@ -83,6 +83,10 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
       })
       .sendStatus(200);
   });
+
+  app.delete("/cookie", (_req, res) => {
+    res.clearCookie("token").sendStatus(200);
+  });
   const schema = makeExecutableSchema({ typeDefs, resolvers });
 
   const subscriptionServer = SubscriptionServer.create(
@@ -102,7 +106,6 @@ async function startApolloServer(typeDefs: DocumentNode, resolvers: any) {
     context: async ({ req }) => {
       const token = req.cookies.token || "";
       const user = await getUser(token);
-      console.log(user);
       return { user };
     },
     plugins: [
